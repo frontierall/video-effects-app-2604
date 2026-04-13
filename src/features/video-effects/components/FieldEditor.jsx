@@ -1,5 +1,5 @@
 import { useVideoEffectsStore } from '../hooks/useVideoEffectsStore';
-import { TEMPLATES } from '../data/videoEffectTemplates';
+import { getTemplateById } from '../utils/templateLibrary';
 
 function LogoUpload({ uploadedImage, onUpload }) {
   const handleFileChange = (e) => {
@@ -62,15 +62,115 @@ export function FieldEditor() {
     updateTextObject,
     removeTextObject,
     resetFields,
+    resetFieldsToOriginal,
     uploadedImage,
     setUploadedImage,
+    generatedTemplates,
+    presets,
+    saveCurrentAsPreset,
+    applyPreset,
+    deletePreset,
+    saveCurrentAsTemplateDefault,
+    clearTemplateDefault,
+    templateDefaults,
   } = useVideoEffectsStore();
   
-  const template = TEMPLATES.find(t => t.id === selectedTemplateId);
+  const template = getTemplateById(selectedTemplateId, generatedTemplates);
+  const relatedPresets = presets.filter(preset => preset.templateId === selectedTemplateId);
+  const hasTemplateDefault = Boolean(templateDefaults[selectedTemplateId]);
   if (!template) return null;
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2">
+      <section className="space-y-4">
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          <div className="p-4 rounded-2xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider">프리셋</h4>
+                <p className="text-[11px] text-gray-400 mt-1">현재 설정을 이름으로 저장하고 다시 불러옵니다.</p>
+              </div>
+              <button
+                onClick={() => {
+                  const name = window.prompt('프리셋 이름을 입력하세요.');
+                  if (name) saveCurrentAsPreset(name);
+                }}
+                className="px-3 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-white text-[11px] font-bold transition-colors"
+              >
+                현재 설정 저장
+              </button>
+            </div>
+            {relatedPresets.length > 0 ? (
+              <div className="space-y-2">
+                {relatedPresets.map(preset => (
+                  <div key={preset.id} className="flex items-center justify-between gap-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-gray-800 dark:text-gray-100 truncate">{preset.name}</p>
+                      <p className="text-[10px] text-gray-400">저장된 설정 재적용</p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => applyPreset(preset.id)}
+                        className="px-2.5 py-1.5 rounded-lg border border-red-300 text-red-500 hover:bg-red-500 hover:text-white text-[10px] font-bold transition-all"
+                      >
+                        불러오기
+                      </button>
+                      <button
+                        onClick={() => deletePreset(preset.id)}
+                        className="px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-400 hover:text-red-500 text-[10px] font-bold transition-colors"
+                      >
+                        삭제
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[11px] text-gray-400">이 템플릿에 저장된 프리셋이 없습니다.</p>
+            )}
+          </div>
+
+          <div className="p-4 rounded-2xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider">내 기본값</h4>
+                <p className="text-[11px] text-gray-400 mt-1">이 템플릿을 다시 선택할 때 기본으로 적용할 설정입니다.</p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={saveCurrentAsTemplateDefault}
+                className="px-3 py-2 rounded-xl bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-[11px] font-bold transition-colors"
+              >
+                내 기본값으로 저장
+              </button>
+              {hasTemplateDefault && (
+                <>
+                  <button
+                    onClick={resetFields}
+                    className="px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-600 text-[11px] font-bold text-gray-600 dark:text-gray-300 hover:border-red-400 transition-colors"
+                  >
+                    내 기본값으로 복원
+                  </button>
+                  <button
+                    onClick={() => clearTemplateDefault(selectedTemplateId)}
+                    className="px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-600 text-[11px] font-bold text-gray-500 hover:text-red-500 transition-colors"
+                  >
+                    내 기본값 삭제
+                  </button>
+                </>
+              )}
+              <button
+                onClick={resetFieldsToOriginal}
+                className="px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-600 text-[11px] font-bold text-gray-600 dark:text-gray-300 hover:border-red-400 transition-colors"
+              >
+                원본 기본값으로 초기화
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* 1. 로고 업로드 */}
       <section>
         <LogoUpload uploadedImage={uploadedImage} onUpload={setUploadedImage} />
@@ -80,9 +180,16 @@ export function FieldEditor() {
       <section className="space-y-4">
         <div className="flex items-center justify-between px-1">
           <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider">기본 속성</h4>
-          <button onClick={resetFields} className="text-[10px] text-gray-400 hover:text-red-500 font-bold transition-colors">
-            초기화
-          </button>
+          <div className="flex items-center gap-3">
+            {hasTemplateDefault && (
+              <button onClick={resetFields} className="text-[10px] text-gray-400 hover:text-red-500 font-bold transition-colors">
+                내 기본값 복원
+              </button>
+            )}
+            <button onClick={resetFieldsToOriginal} className="text-[10px] text-gray-400 hover:text-red-500 font-bold transition-colors">
+              원본 초기화
+            </button>
+          </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {template.fields.map(field => (

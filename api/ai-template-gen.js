@@ -87,6 +87,7 @@ const DEFAULT_MODEL_ID = 'anthropic/claude-sonnet-4-6';
 const INVALID_OPENROUTER_MODEL_PATTERN = /not a valid model id/i;
 
 const OPENROUTER_SUPPORTED_API_MODELS = new Set([
+  'anthropic/claude-sonnet-4-6',
   'deepseek/deepseek-v3.2',
   'qwen/qwen-2.5-coder-32b-instruct',
   'nvidia/nemotron-3-super-120b-a12b:free',
@@ -96,9 +97,9 @@ const OPENROUTER_SUPPORTED_API_MODELS = new Set([
 
 const MODEL_REGISTRY = {
   'anthropic/claude-sonnet-4-6': {
-    provider: 'anthropic',
-    providerLabel: 'Anthropic',
-    apiModel: 'claude-sonnet-4-5-20250929',
+    provider: 'openrouter',
+    providerLabel: 'OpenRouter',
+    apiModel: 'anthropic/claude-sonnet-4-6',
     fallbackModelId: null,
     timeoutMs: 55000,
     retryOnParseFailure: false,
@@ -209,6 +210,31 @@ function getProviderCredentials(provider, env) {
   }
 
   throw createHttpError(500, `Unsupported provider: ${provider}`);
+}
+
+function toClientErrorMessage(error, provider) {
+  if (error?.code === 'missing_provider_key' || /not configured/i.test(error?.message || '')) {
+    if (provider === 'openrouter') {
+      return 'OPENROUTER_API_KEY가 없거나 API 서버가 최신 .env를 다시 읽지 못했습니다. .env 확인 후 npm run dev:api를 재시작해 주세요.';
+    }
+    if (provider === 'anthropic') {
+      return 'ANTHROPIC_API_KEY가 없거나 API 서버가 최신 .env를 다시 읽지 못했습니다. .env 확인 후 npm run dev:api를 재시작해 주세요.';
+    }
+  }
+
+  if (error?.statusCode === 401 || error?.statusCode === 403) {
+    return `${provider} 인증에 실패했습니다. API 키가 만료되었거나 잘못되었는지 확인해 주세요.`;
+  }
+
+  if (error?.statusCode === 429) {
+    return `${provider} 요청 한도에 도달했습니다. 잠시 후 다시 시도해 주세요.`;
+  }
+
+  if (error?.statusCode === 504 || /시간 초과/.test(error?.message || '')) {
+    return `${provider} 응답 시간이 초과되었습니다. 잠시 후 다시 시도하거나 다른 모델을 선택해 주세요.`;
+  }
+
+  return error?.message || 'AI 요청 처리 중 오류가 발생했습니다.';
 }
 
 async function executeModelRequest(modelConfig, apiKey, prompt) {
@@ -407,6 +433,9 @@ export default async function handler(req, res) {
       statusCode: error.statusCode || 500,
       message: error.message,
     });
-    return res.status(error.statusCode || 500).json({ error: error.message });
+    return res.status(error.statusCode || 500).json({
+      error: toClientErrorMessage(error, MODEL_REGISTRY[requestedModelId]?.providerLabel || 'AI'),
+      rawError: error.message,
+    });
   }
 }

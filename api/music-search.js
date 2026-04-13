@@ -16,6 +16,7 @@ export default async function handler(req, res) {
     format: 'json',
     limit: per_page,
     audioformat: 'mp32',
+    audiodlformat: 'mp32',
     include: 'musicinfo',
   });
   if (tags) params.set('tags', tags);
@@ -30,7 +31,31 @@ export default async function handler(req, res) {
     if (data.headers?.code !== 0) {
       throw new Error(data.headers?.error_message || 'Jamendo API 오류');
     }
-    res.status(200).json(data);
+
+    const results = (data.results || []).map(track => ({
+      id: track.id,
+      name: track.name,
+      duration: track.duration,
+      artist_name: track.artist_name,
+      album_name: track.album_name,
+      image: track.image,
+      audio: track.audio,
+      audiodownload: track.audiodownload || '',
+      audiodownload_allowed: track.audiodownload_allowed === true,
+      previewUrl: track.audio
+        ? `/api/music-proxy?provider=jamendo&mode=preview&url=${encodeURIComponent(track.audio)}`
+        : '',
+      exportUrl: track.audiodownload_allowed && track.audiodownload
+        ? `/api/music-proxy?provider=jamendo&mode=export&url=${encodeURIComponent(track.audiodownload)}`
+        : '',
+      canExport: track.audiodownload_allowed === true && Boolean(track.audiodownload),
+      provider: 'jamendo',
+    }));
+
+    res.status(200).json({
+      headers: data.headers,
+      results,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

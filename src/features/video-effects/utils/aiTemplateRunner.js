@@ -12,7 +12,8 @@ const UTIL_FNS = {
     return Math.pow(2, -10 * t) * Math.sin((t * 10 - 0.75) * (2 * Math.PI / 3)) + 1;
   },
   bounceOut: (t) => {
-    const n1 = 7.5625, d1 = 2.75;
+    const n1 = 7.5625;
+    const d1 = 2.75;
     if (t < 1 / d1) return n1 * t * t;
     if (t < 2 / d1) return n1 * (t -= 1.5 / d1) * t + 0.75;
     if (t < 2.5 / d1) return n1 * (t -= 2.25 / d1) * t + 0.9375;
@@ -27,9 +28,13 @@ const UTIL_FNS = {
     const lines = [];
     let line = '';
     for (const word of words) {
-      const test = line ? line + ' ' + word : word;
-      if (ctx.measureText(test).width > maxWidth && line) { lines.push(line); line = word; }
-      else line = test;
+      const test = line ? `${line} ${word}` : word;
+      if (ctx.measureText(test).width > maxWidth && line) {
+        lines.push(line);
+        line = word;
+      } else {
+        line = test;
+      }
     }
     if (line) lines.push(line);
     return lines;
@@ -49,10 +54,81 @@ const FORBIDDEN = [
   '__proto__', 'prototype',
 ];
 
+function buildCompilerError(message, details = {}) {
+  const error = new Error(message);
+  error.details = details;
+  return error;
+}
+
+function sanitizeRenderCode(renderCode = '') {
+  let next = String(renderCode || '');
+  const notes = [];
+
+  const fenced = next.match(/```(?:javascript|js)?\s*([\s\S]*?)```/i);
+  if (fenced?.[1]) {
+    next = fenced[1].trim();
+    notes.push('코드 블록 마크다운 제거');
+  }
+
+  const firstCodeIndex = ['function render', 'const render', 'let render', 'var render']
+    .map(token => next.indexOf(token))
+    .filter(index => index >= 0)
+    .sort((a, b) => a - b)[0];
+  if (firstCodeIndex > 0) {
+    next = next.slice(firstCodeIndex);
+    notes.push('코드 앞 설명 문구 제거');
+  }
+
+  const replacements = [
+    [/export\s+default\s+function\s+render\s*\(/g, 'function render('],
+    [/export\s+function\s+render\s*\(/g, 'function render('],
+    [/export\s+default\s+render\s*;?/g, ''],
+    [/return\s+function\s+render\s*\(/g, 'function render('],
+  ];
+
+  replacements.forEach(([pattern, replacement]) => {
+    if (pattern.test(next)) {
+      next = next.replace(pattern, replacement);
+      notes.push(`자동 보정 적용: ${pattern}`);
+    }
+  });
+
+  next = next.trim();
+
+  const hasRenderDeclaration = /(function\s+render\s*\()|((const|let|var)\s+render\s*=)/.test(next);
+  if (!hasRenderDeclaration && next) {
+    next = `function render(ctx, t, v, W, H) {\n${next}\n}`;
+    notes.push('자동 보정 적용: render 함수 선언이 없어 함수 본문으로 감싸기');
+  }
+
+  return {
+    original: String(renderCode || ''),
+    sanitized: next,
+    notes,
+  };
+}
+
 export function createRenderFn(renderCode) {
+  const sanitizedResult = sanitizeRenderCode(renderCode);
+
+  if (!sanitizedResult.sanitized) {
+    throw buildCompilerError('AI가 renderCode를 비워서 반환했습니다.', {
+      stage: 'empty-render-code',
+      originalRenderCode: sanitizedResult.original,
+      sanitizedRenderCode: sanitizedResult.sanitized,
+      sanitizerNotes: sanitizedResult.notes,
+    });
+  }
+
   for (const kw of FORBIDDEN) {
-    if (renderCode.includes(kw)) {
-      throw new Error(`허용되지 않는 코드가 포함되어 있습니다: "${kw}"`);
+    if (sanitizedResult.sanitized.includes(kw)) {
+      throw buildCompilerError(`허용되지 않는 코드가 포함되어 있습니다: "${kw}"`, {
+        stage: 'forbidden-check',
+        offendingKeyword: kw,
+        originalRenderCode: sanitizedResult.original,
+        sanitizedRenderCode: sanitizedResult.sanitized,
+        sanitizerNotes: sanitizedResult.notes,
+      });
     }
   }
 
@@ -61,68 +137,94 @@ export function createRenderFn(renderCode) {
     // eslint-disable-next-line no-new-func
     const factory = new Function(
       ...UTIL_NAMES,
-      `"use strict";\n${renderCode}\nif (typeof render !== 'function') throw new Error('render 함수를 찾을 수 없습니다');\nreturn render;`
+      `"use strict";\n${sanitizedResult.sanitized}\nif (typeof render !== 'function') throw new Error('render 함수를 찾을 수 없습니다');\nreturn render;`
     );
     rawFn = factory(...UTIL_VALUES);
   } catch (e) {
-    throw new Error(`코드 컴파일 오류: ${e.message}`);
+    throw buildCompilerError(`코드 컴파일 오류: ${e.message}`, {
+      stage: 'compile',
+      compilerMessage: e.message,
+      originalRenderCode: sanitizedResult.original,
+      sanitizedRenderCode: sanitizedResult.sanitized,
+      sanitizerNotes: sanitizedResult.notes,
+    });
   }
 
-  // ctx 상태 누수 방지를 위해 save/restore로 감싼다
-  return (ctx, t, v, W, H) => {
-    ctx.save();
-    try {
-      rawFn(ctx, t, v, W, H);
-    } catch (e) {
-      // 렌더 오류 시 배경만 채움
-      ctx.fillStyle = '#1a1a2e';
-      ctx.fillRect(0, 0, W, H);
-      ctx.fillStyle = '#ff4757';
-      ctx.font = `${Math.round(H * 0.04)}px sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('렌더 오류: ' + e.message, W / 2, H / 2);
-    } finally {
-      ctx.restore();
-      ctx.globalAlpha = 1;
-    }
+  return {
+    sanitizedRenderCode: sanitizedResult.sanitized,
+    sanitizerNotes: sanitizedResult.notes,
+    render: (ctx, t, v, W, H) => {
+      ctx.save();
+      try {
+        rawFn(ctx, t, v, W, H);
+      } catch (e) {
+        ctx.fillStyle = '#1a1a2e';
+        ctx.fillRect(0, 0, W, H);
+        ctx.fillStyle = '#ff4757';
+        ctx.font = `${Math.round(H * 0.04)}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`렌더 오류: ${e.message}`, W / 2, H / 2);
+      } finally {
+        ctx.restore();
+        ctx.globalAlpha = 1;
+      }
+    },
   };
 }
 
 export function buildGeneratedTemplate(raw, originalPrompt = '') {
-  const renderFn = createRenderFn(raw.renderCode);
-  return {
-    id: `ai-gen-${Date.now()}`,
-    name: raw.name,
-    type: raw.type,
-    duration: Math.max(1000, Math.min(12000, raw.duration || 3000)),
-    fields: raw.fields || [],
-    render: renderFn,
-    isAIGenerated: true,
-    renderCode: raw.renderCode,
-    prompt: originalPrompt,
-    requestedModel: raw.requestedModel || null,
-    resolvedProvider: raw.resolvedProvider || null,
-    resolvedProviderLabel: raw.resolvedProviderLabel || null,
-    resolvedModel: raw.resolvedModel || null,
-    resolvedApiModel: raw.resolvedApiModel || null,
-    fallbackApplied: raw.fallbackApplied === true,
-    fallbackReason: raw.fallbackReason || null,
-    attemptedModels: Array.isArray(raw.attemptedModels) ? raw.attemptedModels : [],
-    createdAt: Date.now(),
-  };
+  try {
+    const compiled = createRenderFn(raw.renderCode);
+    return {
+      id: `ai-gen-${Date.now()}`,
+      name: raw.name,
+      type: raw.type,
+      duration: Math.max(1000, Math.min(12000, raw.duration || 3000)),
+      fields: raw.fields || [],
+      render: compiled.render,
+      isAIGenerated: true,
+      renderCode: raw.renderCode,
+      sanitizedRenderCode: compiled.sanitizedRenderCode,
+      sanitizerNotes: compiled.sanitizerNotes,
+      prompt: originalPrompt,
+      requestedModel: raw.requestedModel || null,
+      resolvedProvider: raw.resolvedProvider || null,
+      resolvedProviderLabel: raw.resolvedProviderLabel || null,
+      resolvedModel: raw.resolvedModel || null,
+      resolvedApiModel: raw.resolvedApiModel || null,
+      fallbackApplied: raw.fallbackApplied === true,
+      fallbackReason: raw.fallbackReason || null,
+      attemptedModels: Array.isArray(raw.attemptedModels) ? raw.attemptedModels : [],
+      createdAt: Date.now(),
+    };
+  } catch (error) {
+    if (error?.details) {
+      error.details = {
+        ...error.details,
+        templateName: raw?.name || null,
+        requestedModel: raw?.requestedModel || null,
+        resolvedModel: raw?.resolvedModel || null,
+        resolvedProvider: raw?.resolvedProviderLabel || raw?.resolvedProvider || null,
+      };
+    }
+    throw error;
+  }
 }
 
-// localStorage 저장용 직렬화 (render 함수 제외)
 export function serializeTemplate(template) {
   const { render: _render, ...rest } = template;
   return rest;
 }
 
-// localStorage에서 불러올 때 render 함수 복원
 export function deserializeTemplate(saved) {
-  const renderFn = createRenderFn(saved.renderCode);
-  return { ...saved, render: renderFn };
+  const compiled = createRenderFn(saved.renderCode);
+  return {
+    ...saved,
+    render: compiled.render,
+    sanitizedRenderCode: saved.sanitizedRenderCode || compiled.sanitizedRenderCode,
+    sanitizerNotes: saved.sanitizerNotes || compiled.sanitizerNotes,
+  };
 }
 
 const STORAGE_KEY = 'trendtube_ai_templates';
@@ -134,8 +236,11 @@ export function loadSavedTemplates() {
     const list = JSON.parse(raw);
     return list
       .map(item => {
-        try { return deserializeTemplate(item); }
-        catch { return null; }
+        try {
+          return deserializeTemplate(item);
+        } catch {
+          return null;
+        }
       })
       .filter(Boolean);
   } catch {

@@ -145,7 +145,11 @@ export function useMediaExport() {
         setTimeout(() => URL.revokeObjectURL(url), 5000);
       } catch (err) {
         console.error('[FFmpeg] Error:', err);
-        setLastError('MP4 변환 실패. 원본 파일을 대신 시도합니다.');
+        const isJamendo = backgroundMusic?.provider === 'jamendo';
+        const jamendoMessage = !backgroundMusic?.isDownloadAllowed
+          ? 'Jamendo 트랙 다운로드가 허용되지 않아 export할 수 없습니다.'
+          : 'Jamendo 오디오 로드 또는 변환에 실패했습니다. 프록시와 다운로드 허용 상태를 확인해 주세요.';
+        setLastError(isJamendo ? jamendoMessage : 'MP4 변환 실패. 원본 파일을 대신 시도합니다.');
         const webmBlob = new Blob(chunksRef.current, { type: mimeType });
         const url = URL.createObjectURL(webmBlob);
         const a = document.createElement('a');

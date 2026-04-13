@@ -36,6 +36,10 @@ function extractJsonFromText(text) {
   return match ? match[0] : cleaned;
 }
 
+function isToolUseUnsupportedError(error) {
+  return /No endpoints found that support tool use/i.test(error?.message || '');
+}
+
 export async function callOpenRouterTool(apiKey, {
   model,
   max_tokens = 3000,
@@ -103,7 +107,30 @@ export async function callOpenRouterTool(apiKey, {
     return data;
   }
 
-  const firstPass = await makeRequest(prompt, 'tool_call');
+  let firstPass;
+
+  try {
+    firstPass = await makeRequest(prompt, 'tool_call');
+  } catch (error) {
+    if (isToolUseUnsupportedError(error)) {
+      const fallbackPrompt = `${prompt}
+
+Return only a valid JSON object.
+Do not use markdown fences.
+Do not add explanations before or after the JSON.
+The JSON must match the requested function schema exactly.`;
+      const textOnlyPass = await makeRequest(fallbackPrompt, 'text_json');
+      const textOnlyContent = textOnlyPass.choices?.[0]?.message?.content || '';
+      const parsedTextOnly = tryParseStructuredOutput(extractJsonFromText(textOnlyContent));
+      if (parsedTextOnly) return parsedTextOnly;
+
+      throw createError('AI 응답을 파싱할 수 없습니다.', {
+        statusCode: 500,
+        code: 'openrouter_parse_error',
+      });
+    }
+    throw error;
+  }
 
   const toolCall = firstPass.choices?.[0]?.message?.tool_calls?.[0];
   const parsedToolCall = tryParseStructuredOutput(toolCall?.function?.arguments);

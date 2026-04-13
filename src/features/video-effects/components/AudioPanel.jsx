@@ -88,14 +88,15 @@ export function AudioPanel() {
 
   // ── 트랙 미리듣기 ──────────────────────────────────────
   function handlePreview(track) {
-    if (previewingUrl === track.audio) {
+    const previewUrl = track.previewUrl || track.audio;
+    if (previewingUrl === previewUrl) {
       previewAudioRef.current?.pause();
       setPreviewingUrl(null);
       return;
     }
-    setPreviewingUrl(track.audio);
+    setPreviewingUrl(previewUrl);
     if (previewAudioRef.current) {
-      previewAudioRef.current.src = track.audio;
+      previewAudioRef.current.src = previewUrl;
       previewAudioRef.current.play().catch(() => {});
     }
   }
@@ -104,10 +105,18 @@ export function AudioPanel() {
   async function handleSelectTrack(track) {
     setLoadingId(track.id);
     try {
+      if (!track.canExport || !track.exportUrl) {
+        setSearchError('이 트랙은 Jamendo 정책상 export에 사용할 수 없습니다.');
+        return;
+      }
       setBackgroundMusic({
         name: track.name || `Track #${track.id}`,
-        previewUrl: track.audio,
-        exportUrl: `/api/music-proxy?url=${encodeURIComponent(track.audio)}`,
+        provider: 'jamendo',
+        trackId: track.id,
+        artistName: track.artist_name,
+        previewUrl: track.previewUrl,
+        exportUrl: track.exportUrl,
+        isDownloadAllowed: track.audiodownload_allowed === true,
         volume: 0.8,
         isExternal: true,
       });
@@ -265,8 +274,8 @@ export function AudioPanel() {
           {tracks.length > 0 && (
             <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
               {tracks.map(track => {
-                const isSelected = backgroundMusic?.previewUrl === track.audio;
-                const isPreviewing = previewingUrl === track.audio;
+                const isSelected = backgroundMusic?.trackId === track.id;
+                const isPreviewing = previewingUrl === (track.previewUrl || track.audio);
                 return (
                   <div
                     key={track.id}
@@ -304,6 +313,18 @@ export function AudioPanel() {
                       <p className="text-[10px] text-gray-400 truncate">
                         {track.artist_name} · {formatDuration(track.duration)}
                       </p>
+                      <div className="mt-1 flex items-center gap-1.5">
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-300 font-bold">
+                          미리듣기
+                        </span>
+                        <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold ${
+                          track.canExport
+                            ? 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300'
+                            : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
+                        }`}>
+                          {track.canExport ? 'export 가능' : 'export 제한'}
+                        </span>
+                      </div>
                     </div>
 
                     {/* 선택 버튼 */}
@@ -314,10 +335,10 @@ export function AudioPanel() {
                     ) : (
                       <button
                         onClick={() => handleSelectTrack(track)}
-                        disabled={loadingId === track.id}
-                        className="shrink-0 px-3 py-1 text-[11px] font-bold text-red-500 border border-red-300 hover:bg-red-500 hover:text-white rounded-lg transition-all disabled:opacity-50"
+                        disabled={loadingId === track.id || !track.canExport}
+                        className="shrink-0 px-3 py-1 text-[11px] font-bold text-red-500 border border-red-300 hover:bg-red-500 hover:text-white rounded-lg transition-all disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-red-500"
                       >
-                        {loadingId === track.id ? '...' : '사용'}
+                        {loadingId === track.id ? '...' : (track.canExport ? '사용' : '제한')}
                       </button>
                     )}
                   </div>

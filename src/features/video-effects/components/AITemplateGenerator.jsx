@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useVideoEffectsStore } from '../hooks/useVideoEffectsStore';
 import { buildGeneratedTemplate, loadSavedTemplates, saveTemplatesToStorage } from '../utils/aiTemplateRunner';
 import { renderVideoEffectFrame } from '../utils/videoEffectsTextObjects';
+import { CATEGORY_EXAMPLE_PROMPTS, GENERIC_EXAMPLE_PROMPTS } from '../data/aiExamplePrompts';
 
 const AI_MODELS = [
   {
@@ -73,16 +74,44 @@ const RECOMMENDATION_CATEGORIES = [
 const SCRIPT_STYLE_OPTIONS = ['정보형', '감성형', '다큐형', '쇼츠형', '브랜드형'];
 const BRAND_TONE_OPTIONS = ['깔끔함', '강렬함', '프리미엄', '밝음', '신뢰감'];
 
-const EXAMPLE_PROMPTS = [
-  '빨간 파티클이 흩날리며 채널명이 등장하는 인트로',
-  '글리치 효과로 화면이 깨지며 전환되는 트랜지션',
-  '형광펜이 그어지며 강조 텍스트가 나타나는 자막',
-  '시네마틱 레터박스와 함께 에피소드 제목이 공개되는 인트로',
-  '소셜 미디어 아이콘이 튀어나오는 아웃트로',
-];
+const EXAMPLE_BATCH_SIZE = 6;
 
 function getModelLabel(modelId) {
   return AI_MODELS.find(model => model.value === modelId)?.label || modelId;
+}
+
+function shuffleArray(items) {
+  const next = [...items];
+  for (let i = next.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [next[i], next[j]] = [next[j], next[i]];
+  }
+  return next;
+}
+
+function buildExampleState(prompts) {
+  const shuffled = shuffleArray(prompts);
+  return {
+    queue: shuffled.slice(EXAMPLE_BATCH_SIZE),
+    visible: shuffled.slice(0, EXAMPLE_BATCH_SIZE),
+  };
+}
+
+function nextExampleState(prompts, currentQueue = []) {
+  let queue = [...currentQueue];
+  if (queue.length < EXAMPLE_BATCH_SIZE) {
+    queue = shuffleArray(prompts);
+  }
+
+  const visible = queue.slice(0, EXAMPLE_BATCH_SIZE);
+  return {
+    queue: queue.slice(EXAMPLE_BATCH_SIZE),
+    visible,
+  };
+}
+
+function getExampleCategory(type) {
+  return ['intro', 'outro', 'section-title'].includes(type) ? type : null;
 }
 
 function formatTime(ms) {
@@ -189,6 +218,7 @@ export function AITemplateGenerator() {
   const [generating, setGenerating] = useState(false);
   const [recommending, setRecommending] = useState(false);
   const [error, setError] = useState(null);
+  const [errorDetails, setErrorDetails] = useState(null);
   const [lastGenerated, setLastGenerated] = useState(null);
   const [scriptText, setScriptText] = useState('');
   const [videoStyle, setVideoStyle] = useState('정보형');
@@ -197,6 +227,11 @@ export function AITemplateGenerator() {
   const [selectedCategories, setSelectedCategories] = useState(['intro', 'outro', 'section-title']);
   const [recommendationResult, setRecommendationResult] = useState(null);
   const [selectedRecommendationId, setSelectedRecommendationId] = useState(null);
+  const [exampleStateByCategory, setExampleStateByCategory] = useState(() => ({
+    intro: buildExampleState(CATEGORY_EXAMPLE_PROMPTS.intro),
+    outro: buildExampleState(CATEGORY_EXAMPLE_PROMPTS.outro),
+    'section-title': buildExampleState(CATEGORY_EXAMPLE_PROMPTS['section-title']),
+  }));
 
   useEffect(() => {
     const saved = loadSavedTemplates();
@@ -206,6 +241,19 @@ export function AITemplateGenerator() {
   useEffect(() => {
     saveTemplatesToStorage(generatedTemplates);
   }, [generatedTemplates]);
+
+  useEffect(() => {
+    const exampleCategory = getExampleCategory(effectType);
+    if (!exampleCategory) return;
+
+    setExampleStateByCategory(current => {
+      if (current[exampleCategory]?.visible?.length) return current;
+      return {
+        ...current,
+        [exampleCategory]: buildExampleState(CATEGORY_EXAMPLE_PROMPTS[exampleCategory]),
+      };
+    });
+  }, [effectType]);
 
   async function requestJson(url, body) {
     const res = await fetch(url, {
@@ -221,7 +269,11 @@ export function AITemplateGenerator() {
     }
 
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || '요청 실패');
+    if (!res.ok) {
+      const error = new Error(data.error || '요청 실패');
+      error.details = data.rawError ? { rawError: data.rawError } : null;
+      throw error;
+    }
     return data;
   }
 
@@ -232,16 +284,29 @@ export function AITemplateGenerator() {
       model: aiModel,
     });
 
-    const template = buildGeneratedTemplate(data, promptText.trim());
-    addGeneratedTemplate(template);
-    setLastGenerated(template);
-    return template;
+    try {
+      const template = buildGeneratedTemplate(data, promptText.trim());
+      addGeneratedTemplate(template);
+      setLastGenerated(template);
+      return template;
+    } catch (error) {
+      error.details = {
+        ...(error.details || {}),
+        apiTemplateName: data?.name || '',
+        apiTemplateType: data?.type || '',
+        apiDuration: data?.duration ?? '',
+        apiFields: Array.isArray(data?.fields) ? JSON.stringify(data.fields, null, 2) : '',
+        apiRenderCode: typeof data?.renderCode === 'string' ? data.renderCode : '',
+      };
+      throw error;
+    }
   }
 
   async function handleGenerate() {
     if (!prompt.trim() || generating) return;
     setGenerating(true);
     setError(null);
+    setErrorDetails(null);
     setLastGenerated(null);
 
     try {
@@ -249,6 +314,7 @@ export function AITemplateGenerator() {
       setPrompt('');
     } catch (e) {
       setError(e.message);
+      setErrorDetails(e.details || null);
     } finally {
       setGenerating(false);
     }
@@ -258,6 +324,7 @@ export function AITemplateGenerator() {
     if (!scriptText.trim() || recommending) return;
     setRecommending(true);
     setError(null);
+    setErrorDetails(null);
     setRecommendationResult(null);
     setSelectedRecommendationId(null);
 
@@ -274,6 +341,7 @@ export function AITemplateGenerator() {
       setSelectedRecommendationId(data.recommendations?.[0]?.id || null);
     } catch (e) {
       setError(e.message);
+      setErrorDetails(e.details || null);
     } finally {
       setRecommending(false);
     }
@@ -283,12 +351,14 @@ export function AITemplateGenerator() {
     if (!recommendation?.prompt || generating) return;
     setGenerating(true);
     setError(null);
+    setErrorDetails(null);
     setLastGenerated(null);
 
     try {
       await generateTemplateFromPrompt(recommendation.prompt, recommendation.category);
     } catch (e) {
       setError(e.message);
+      setErrorDetails(e.details || null);
     } finally {
       setGenerating(false);
     }
@@ -317,6 +387,19 @@ export function AITemplateGenerator() {
     });
   }
 
+  function refreshExamples() {
+    const exampleCategory = getExampleCategory(effectType);
+    if (!exampleCategory) return;
+
+    setExampleStateByCategory(current => ({
+      ...current,
+      [exampleCategory]: nextExampleState(
+        CATEGORY_EXAMPLE_PROMPTS[exampleCategory],
+        current[exampleCategory]?.queue || []
+      ),
+    }));
+  }
+
   const selectedRecommendation = recommendationResult?.recommendations?.find(item => item.id === selectedRecommendationId) || null;
   const groupedRecommendations = recommendationResult?.recommendations?.reduce((acc, item) => {
     const list = acc[item.category] || [];
@@ -338,6 +421,30 @@ export function AITemplateGenerator() {
         추천프롬프트: recommendationResult.promptPack.recommendationPrompt,
         생성가이드: recommendationResult.promptPack.generationGuide,
         선택추천프롬프트: selectedRecommendation?.prompt || '',
+      }
+    : null;
+
+  const exampleCategory = getExampleCategory(effectType);
+  const visibleExamples = exampleCategory
+    ? (exampleStateByCategory[exampleCategory]?.visible || [])
+    : GENERIC_EXAMPLE_PROMPTS;
+  const exampleCountLabel = exampleCategory ? CATEGORY_EXAMPLE_PROMPTS[exampleCategory].length : GENERIC_EXAMPLE_PROMPTS.length;
+
+  const errorPromptMap = errorDetails
+    ? {
+        단계: errorDetails.stage || '',
+        모델: [errorDetails.requestedModel, errorDetails.resolvedModel, errorDetails.resolvedProvider].filter(Boolean).join(' / '),
+        API템플릿이름: errorDetails.apiTemplateName || '',
+        API템플릿타입: errorDetails.apiTemplateType || '',
+        API지속시간: errorDetails.apiDuration === '' ? '' : String(errorDetails.apiDuration),
+        API필드: errorDetails.apiFields || '',
+        원본오류: errorDetails.rawError || '',
+        컴파일오류: errorDetails.compilerMessage || '',
+        금지키워드: errorDetails.offendingKeyword || '',
+        자동보정: Array.isArray(errorDetails.sanitizerNotes) ? errorDetails.sanitizerNotes.join('\n') : '',
+        APIrenderCode: errorDetails.apiRenderCode || '',
+        원본renderCode: errorDetails.originalRenderCode || '',
+        보정후renderCode: errorDetails.sanitizedRenderCode || '',
       }
     : null;
 
@@ -415,10 +522,28 @@ export function AITemplateGenerator() {
               <span className="absolute bottom-3 right-3 text-[10px] text-gray-400">⌘↵ 생성</span>
             </div>
 
-            <div className="space-y-1.5">
-              <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider px-1">예시</span>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-3 px-1">
+                <div>
+                  <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">예시</span>
+                  <p className="mt-1 text-[11px] text-gray-400">
+                    {exampleCategory
+                      ? `${TYPE_OPTIONS.find(opt => opt.value === effectType)?.label} 전용 예시 ${exampleCountLabel}개 중 ${visibleExamples.length}개를 보여줍니다.`
+                      : '효과 유형을 선택하면 해당 유형 전용 예시를 5~6개씩 추천합니다.'}
+                  </p>
+                </div>
+                {exampleCategory && (
+                  <button
+                    onClick={refreshExamples}
+                    disabled={generating}
+                    className="shrink-0 px-3 py-1.5 text-[11px] font-semibold rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:border-red-300 hover:text-red-500 transition-all disabled:opacity-40"
+                  >
+                    다시 추천
+                  </button>
+                )}
+              </div>
               <div className="flex flex-wrap gap-2">
-                {EXAMPLE_PROMPTS.map(ex => (
+                {visibleExamples.map(ex => (
                   <button
                     key={ex}
                     onClick={() => setPrompt(ex)}
@@ -504,8 +629,9 @@ export function AITemplateGenerator() {
         )}
 
         {error && (
-          <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800 rounded-xl">
+          <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800 rounded-xl space-y-3">
             <p className="text-[11px] text-red-600 dark:text-red-400 font-medium">{error}</p>
+            {errorPromptMap && <PromptViewer title="생성 실패 상세 보기" promptMap={errorPromptMap} />}
           </div>
         )}
 
