@@ -24,7 +24,7 @@ function getSupportedMimeType() {
  * Canvas 애니메이션을 고품질 MP4(Premiere 호환)로 내보내는 훅
  */
 export function useMediaExport() {
-  const { uploadedImage, durationOverride } = useVideoEffectsStore();
+  const { uploadedImage, durationOverride, backgroundMusic } = useVideoEffectsStore();
   const ffmpegRef = useRef(new FFmpeg());
   const offscreenRef = useRef(null);
   const recorderRef = useRef(null);
@@ -105,14 +105,33 @@ export function useMediaExport() {
 
         await ffmpeg.writeFile(inputName, await fetchFile(webmBlob));
 
-        await ffmpeg.exec([
-          '-i', inputName,
-          '-c:v', 'libx264',
-          '-pix_fmt', 'yuv420p',
-          '-r', fps.toString(),
-          '-an',
-          outputName
-        ]);
+        if (backgroundMusic?.exportUrl) {
+          // 배경 음악 믹싱
+          const audioData = await fetchFile(backgroundMusic.exportUrl);
+          await ffmpeg.writeFile('music', audioData);
+          await ffmpeg.exec([
+            '-i', inputName,
+            '-i', 'music',
+            '-c:v', 'libx264',
+            '-pix_fmt', 'yuv420p',
+            '-r', fps.toString(),
+            '-c:a', 'aac',
+            '-b:a', '192k',
+            '-af', `volume=${backgroundMusic.volume ?? 0.8}`,
+            '-shortest',
+            outputName
+          ]);
+        } else {
+          // 오디오 없음
+          await ffmpeg.exec([
+            '-i', inputName,
+            '-c:v', 'libx264',
+            '-pix_fmt', 'yuv420p',
+            '-r', fps.toString(),
+            '-an',
+            outputName
+          ]);
+        }
 
         const data = await ffmpeg.readFile(outputName);
         const mp4Blob = new Blob([data.buffer], { type: 'video/mp4' });
@@ -178,7 +197,7 @@ export function useMediaExport() {
     };
 
     rafRef.current = requestAnimationFrame(renderLoop);
-  }, [exporting, resolution, uploadedImage]);
+  }, [exporting, resolution, uploadedImage, backgroundMusic]);
 
   const cancelExport = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);

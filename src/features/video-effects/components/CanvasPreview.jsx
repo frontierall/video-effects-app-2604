@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { TEMPLATES } from '../data/videoEffectTemplates';
 import { useVideoEffectsStore } from '../hooks/useVideoEffectsStore';
 import { useCanvasRenderer } from '../hooks/useCanvasRenderer';
@@ -12,7 +12,9 @@ export function CanvasPreview() {
     durationOverride,
     setDurationOverride,
     generatedTemplates,
+    backgroundMusic,
   } = useVideoEffectsStore();
+  const audioRef = useRef(null);
   const template =
     TEMPLATES.find(t => t.id === selectedTemplateId) ||
     generatedTemplates.find(t => t.id === selectedTemplateId);
@@ -35,13 +37,50 @@ export function CanvasPreview() {
   const elapsed = Math.round((progress * effectiveDuration) / 1000);
   const total = (effectiveDuration / 1000).toFixed(1);
 
+  // 오디오 볼륨 동기화
+  useEffect(() => {
+    if (audioRef.current && backgroundMusic) {
+      audioRef.current.volume = backgroundMusic.volume ?? 0.8;
+    }
+  }, [backgroundMusic?.volume]);
+
+  function syncAudioTo(ratio) {
+    if (audioRef.current && backgroundMusic) {
+      audioRef.current.currentTime = ratio * (effectiveDuration / 1000);
+    }
+  }
+
+  function handlePlay() {
+    play();
+    if (audioRef.current && backgroundMusic) {
+      syncAudioTo(progress);
+      audioRef.current.play().catch(() => {});
+    }
+  }
+
+  function handlePause() {
+    pause();
+    audioRef.current?.pause();
+  }
+
+  function handleRestart() {
+    restart();
+    if (audioRef.current && backgroundMusic) {
+      audioRef.current.currentTime = 0;
+      audioRef.current.play().catch(() => {});
+    }
+  }
+
   function handleSeek(e) {
     const ratio = parseFloat(e.target.value);
     seekTo(ratio);
+    syncAudioTo(ratio);
   }
 
   useEffect(() => {
     if (template) {
+      audioRef.current?.pause();
+      if (audioRef.current) audioRef.current.currentTime = 0;
       restart();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -91,7 +130,7 @@ export function CanvasPreview() {
         {/* 재생 오버레이 (일시정지 상태에서만) */}
         {!playing && progress < 1 && progress > 0 && (
           <button
-            onClick={play}
+            onClick={handlePlay}
             className="absolute inset-0 flex items-center justify-center bg-black/20 hover:bg-black/30 transition-colors"
           >
             <div className="w-14 h-14 rounded-full bg-white/20 backdrop-blur flex items-center justify-center">
@@ -104,7 +143,7 @@ export function CanvasPreview() {
         {/* 재생 완료 오버레이 */}
         {progress >= 1 && (
           <button
-            onClick={restart}
+            onClick={handleRestart}
             className="absolute inset-0 flex items-center justify-center bg-black/40"
           >
             <div className="w-14 h-14 rounded-full bg-white/20 backdrop-blur flex items-center justify-center">
@@ -135,7 +174,7 @@ export function CanvasPreview() {
           </span>
           <div className="flex items-center gap-2">
             <button
-              onClick={restart}
+              onClick={handleRestart}
               className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
               title="처음부터"
             >
@@ -144,7 +183,7 @@ export function CanvasPreview() {
               </svg>
             </button>
             <button
-              onClick={playing ? pause : play}
+              onClick={playing ? handlePause : handlePlay}
               className="flex items-center gap-1.5 px-4 py-1.5 bg-red-500 hover:bg-red-600 text-white text-xs font-medium rounded-lg transition-colors"
             >
               {playing ? (
@@ -166,6 +205,16 @@ export function CanvasPreview() {
           </div>
         </div>
       </div>
+
+      {/* 배경 음악 미리보기 동기화용 오디오 (숨김) */}
+      {backgroundMusic && (
+        <audio
+          ref={audioRef}
+          src={backgroundMusic.previewUrl}
+          loop
+          preload="auto"
+        />
+      )}
     </div>
   );
 }

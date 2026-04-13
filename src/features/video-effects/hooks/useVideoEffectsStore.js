@@ -22,11 +22,19 @@ export const useVideoEffectsStore = create((set, get) => ({
   typeFilter: 'all', // 'all' | 'intro' | 'outro' | 'lower-third'
   durationOverride: null, // ms, null이면 템플릿 기본값 사용
   generatedTemplates: [],
+  // 배경 음악: { name, previewUrl, exportUrl, volume, isExternal }
+  backgroundMusic: null,
 
   setTypeFilter: (typeFilter) => set({ typeFilter }),
   setMotionBlurEnabled: (motionBlurEnabled) => set({ motionBlurEnabled }),
   setUploadedImage: (image) => set({ uploadedImage: image }),
   setDurationOverride: (ms) => set({ durationOverride: ms }),
+  setBackgroundMusic: (music) => set({ backgroundMusic: music }),
+  setMusicVolume: (volume) =>
+    set(state => ({
+      backgroundMusic: state.backgroundMusic ? { ...state.backgroundMusic, volume } : null,
+    })),
+  clearBackgroundMusic: () => set({ backgroundMusic: null }),
 
   addGeneratedTemplate: (template) => {
     set(state => {

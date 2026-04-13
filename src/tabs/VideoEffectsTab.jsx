@@ -4,13 +4,15 @@ import { FieldEditor } from '../features/video-effects/components/FieldEditor';
 import { CanvasPreview } from '../features/video-effects/components/CanvasPreview';
 import { ExportPanel } from '../features/video-effects/components/ExportPanel';
 import { AITemplateGenerator } from '../features/video-effects/components/AITemplateGenerator';
+import { AudioPanel } from '../features/video-effects/components/AudioPanel';
 
 export function VideoEffectsTab() {
-  const [activeTab, setActiveTab] = useState('design'); // 'design' | 'ai' | 'export'
+  const [activeTab, setActiveTab] = useState('design'); // 'design' | 'ai' | 'music' | 'export'
 
   const tabs = [
     { id: 'design', label: '🎨 디자인', desc: '텍스트, 색상, 로고 설정' },
     { id: 'ai',     label: '✨ AI 생성', desc: '자연어로 새 효과 만들기' },
+    { id: 'music',  label: '🎵 음악',   desc: '배경 음악 업로드/검색' },
     { id: 'export', label: '💾 내보내기', desc: '최종 MP4 파일 다운로드' },
   ];
 
@@ -75,6 +77,7 @@ export function VideoEffectsTab() {
               <div className="p-6">
                 {activeTab === 'design' && <FieldEditor />}
                 {activeTab === 'ai'     && <AITemplateGenerator />}
+                {activeTab === 'music'  && <AudioPanel />}
                 {activeTab === 'export' && <ExportPanel />}
               </div>
             </div>

@@ -3,17 +3,33 @@ node_modules/
 
 # Build output
 dist/
+dist-ssr/
 
 # Environment variables
 .env
 .env.local
+.env.*.local
+.env.development
+.env.test
 .env.production
 
 # Vite cache
 .vite/
 
+# TypeScript
+*.tsbuildinfo
+
 # macOS
 .DS_Store
+
+# Windows
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.suo
+*.sw?
 
 # Vercel
 .vercel/
@@ -21,3 +37,8 @@ dist/
 # Logs
 *.log
 npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Test coverage
+coverage/
