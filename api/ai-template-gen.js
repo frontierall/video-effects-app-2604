@@ -93,7 +93,9 @@ export default async function handler(req, res) {
   const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
   if (!ANTHROPIC_API_KEY) return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured' });
 
-  const { prompt, effectType } = req.body || {};
+  // vercel dev 환경에서 body가 string으로 오는 경우 대비
+  const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+  const { prompt, effectType } = body;
   if (!prompt?.trim()) return res.status(400).json({ error: '프롬프트를 입력해주세요' });
 
   const typeHint = effectType && effectType !== 'auto'
@@ -103,7 +105,7 @@ export default async function handler(req, res) {
 
   try {
     const result = await callClaudeTool(ANTHROPIC_API_KEY, {
-      model: 'claude-sonnet-4-6',
+      model: 'claude-haiku-4-5-20251001',
       max_tokens: 2500,
       temperature: 0,
       timeoutMs: 55000,
