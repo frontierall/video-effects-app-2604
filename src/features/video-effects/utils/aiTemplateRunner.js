@@ -101,6 +101,14 @@ export function buildGeneratedTemplate(raw, originalPrompt = '') {
     isAIGenerated: true,
     renderCode: raw.renderCode,
     prompt: originalPrompt,
+    requestedModel: raw.requestedModel || null,
+    resolvedProvider: raw.resolvedProvider || null,
+    resolvedProviderLabel: raw.resolvedProviderLabel || null,
+    resolvedModel: raw.resolvedModel || null,
+    resolvedApiModel: raw.resolvedApiModel || null,
+    fallbackApplied: raw.fallbackApplied === true,
+    fallbackReason: raw.fallbackReason || null,
+    attemptedModels: Array.isArray(raw.attemptedModels) ? raw.attemptedModels : [],
     createdAt: Date.now(),
   };
 }

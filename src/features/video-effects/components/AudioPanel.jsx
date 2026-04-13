@@ -5,12 +5,12 @@ const GENRES = [
   { value: '',           label: '전체' },
   { value: 'ambient',    label: 'Ambient' },
   { value: 'electronic', label: 'Electronic' },
-  { value: 'cinematic',  label: 'Cinematic' },
+  { value: 'soundtrack', label: 'Cinematic' },
   { value: 'jazz',       label: 'Jazz' },
   { value: 'classical',  label: 'Classical' },
   { value: 'pop',        label: 'Pop' },
   { value: 'rock',       label: 'Rock' },
-  { value: 'hip-hop',    label: 'Hip-Hop' },
+  { value: 'hiphop',     label: 'Hip-Hop' },
   { value: 'folk',       label: 'Folk' },
 ];
 
@@ -65,20 +65,20 @@ export function AudioPanel() {
     }
   }
 
-  // ── Pixabay 검색 ──────────────────────────────────────
+  // ── Jamendo 검색 ──────────────────────────────────────
   async function handleSearch() {
     setSearching(true);
     setSearchError(null);
     setTracks([]);
     try {
       const params = new URLSearchParams({ per_page: '15' });
-      if (genre) params.set('genre', genre);
+      if (genre) params.set('tags', genre);
       if (query.trim()) params.set('q', query.trim());
       const res = await fetch(`/api/music-search?${params}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '검색 실패');
-      setTracks(data.hits || []);
-      if ((data.hits || []).length === 0) setSearchError('검색 결과가 없습니다.');
+      setTracks(data.results || []);
+      if ((data.results || []).length === 0) setSearchError('검색 결과가 없습니다.');
     } catch (err) {
       setSearchError(err.message);
     } finally {
@@ -88,14 +88,14 @@ export function AudioPanel() {
 
   // ── 트랙 미리듣기 ──────────────────────────────────────
   function handlePreview(track) {
-    if (previewingUrl === track.audio_url) {
+    if (previewingUrl === track.audio) {
       previewAudioRef.current?.pause();
       setPreviewingUrl(null);
       return;
     }
-    setPreviewingUrl(track.audio_url);
+    setPreviewingUrl(track.audio);
     if (previewAudioRef.current) {
-      previewAudioRef.current.src = track.audio_url;
+      previewAudioRef.current.src = track.audio;
       previewAudioRef.current.play().catch(() => {});
     }
   }
@@ -105,13 +105,12 @@ export function AudioPanel() {
     setLoadingId(track.id);
     try {
       setBackgroundMusic({
-        name: track.title || `Track #${track.id}`,
-        previewUrl: track.audio_url,
-        exportUrl: `/api/music-proxy?url=${encodeURIComponent(track.audio_url)}`,
+        name: track.name || `Track #${track.id}`,
+        previewUrl: track.audio,
+        exportUrl: `/api/music-proxy?url=${encodeURIComponent(track.audio)}`,
         volume: 0.8,
         isExternal: true,
       });
-      // 미리듣기 정지
       previewAudioRef.current?.pause();
       setPreviewingUrl(null);
     } finally {
@@ -135,7 +134,7 @@ export function AudioPanel() {
                   {backgroundMusic.name}
                 </p>
                 <p className="text-[10px] text-green-600 dark:text-green-500">
-                  {backgroundMusic.isExternal ? 'Pixabay' : '업로드된 파일'}
+                  {backgroundMusic.isExternal ? 'Jamendo' : '업로드된 파일'}
                 </p>
               </div>
             </div>
@@ -177,7 +176,7 @@ export function AudioPanel() {
       <div className="flex rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
         {[
           { id: 'upload',  label: '📁 내 파일 업로드' },
-          { id: 'library', label: '🔍 Pixabay 라이브러리' },
+          { id: 'library', label: '🔍 Jamendo 라이브러리' },
         ].map(tab => (
           <button
             key={tab.id}
@@ -221,7 +220,7 @@ export function AudioPanel() {
         </div>
       )}
 
-      {/* ── Pixabay 라이브러리 섹션 ── */}
+      {/* ── Jamendo 라이브러리 섹션 ── */}
       {source === 'library' && (
         <div className="space-y-4">
           {/* 장르 + 검색 */}
@@ -266,8 +265,8 @@ export function AudioPanel() {
           {tracks.length > 0 && (
             <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
               {tracks.map(track => {
-                const isSelected = backgroundMusic?.previewUrl === track.audio_url;
-                const isPreviewing = previewingUrl === track.audio_url;
+                const isSelected = backgroundMusic?.previewUrl === track.audio;
+                const isPreviewing = previewingUrl === track.audio;
                 return (
                   <div
                     key={track.id}
@@ -300,10 +299,10 @@ export function AudioPanel() {
                     {/* 트랙 정보 */}
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-semibold text-gray-800 dark:text-gray-100 truncate">
-                        {track.title || `Track #${track.id}`}
+                        {track.name || `Track #${track.id}`}
                       </p>
                       <p className="text-[10px] text-gray-400 truncate">
-                        {track.user} · {formatDuration(track.duration)}
+                        {track.artist_name} · {formatDuration(track.duration)}
                       </p>
                     </div>
 
@@ -335,7 +334,7 @@ export function AudioPanel() {
                   d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
               <p className="text-xs">장르를 선택하거나 키워드를 입력 후 검색하세요</p>
-              <p className="text-[10px] mt-1 text-gray-300">Pixabay 로열티프리 음악 제공</p>
+              <p className="text-[10px] mt-1 text-gray-300">Jamendo CC 라이선스 음악 제공</p>
             </div>
           )}
         </div>
